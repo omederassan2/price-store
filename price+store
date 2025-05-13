@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>بحث المواد</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+      background-color: #f0f2f5;
+    }
+    .container {
+      max-width: 800px;
+      margin: auto;
+      background: #fff;
+      padding: 25px;
+      border-radius: 12px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.1);
+    }
+    h1, h2 {
+      text-align: center;
+      color: #333;
+    }
+    .search-box {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      margin-bottom: 25px;
+    }
+    input[type="text"] {
+      padding: 15px;
+      font-size: 18px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+    .buttons {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+    button {
+      padding: 14px 25px;
+      font-size: 17px;
+      border: none;
+      border-radius: 8px;
+      background-color: #28a745;
+      color: white;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #218838;
+    }
+    #cameraContainer {
+      margin-top: 20px;
+      max-width: 400px;
+      margin-inline: auto;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 20px;
+      background: #fafafa;
+      border-radius: 10px;
+      font-size: 18px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 10px;
+      text-align: center;
+    }
+    th {
+      background-color: #f0f0f0;
+    }
+    .loading {
+      text-align: center;
+      color: #555;
+      font-weight: bold;
+    }
+    .error {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>أومیدی راسان</h1>
+    <h2>فرع أربيل - الأسعار والمخزون</h2>
+
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="أدخل كود المادة أو الباركود...">
+      <div class="buttons">
+        <button id="searchButton">🔍 بحث</button>
+        <button id="scanButton">📷 مسح الباركود</button>
+      </div>
+    </div>
+
+    <div id="cameraContainer"></div>
+    <div class="result" id="result"></div>
+  </div>
+
+  <script>
+    const PRICE_API_URL = 'https://script.google.com/macros/s/AKfycbyFI5iWwWkxrJmL7zZRA0VYDm68dV8QkA4fqp4qQFZ28eWwLHBB_CWEpBAAPQLbVbHS/exec';
+    const STOCK_API_URL = 'https://script.google.com/macros/s/AKfycbxeWytcbPgkPdUUX71LQQw9GhzvsLbOOzj41NAb9feMpRUEwYaUwAICCCgrD8GgslECkQ/exec';
+
+    let html5QrCode;
+
+    async function fetchPrices(code) {
+      try {
+        const res = await fetch(`${PRICE_API_URL}?code=${encodeURIComponent(code)}&sheet=Sheet2`);
+        return await res.json();
+      } catch (e) {
+        console.error("خطأ في الأسعار:", e);
+        return null;
+      }
+    }
+
+    async function fetchStock(code) {
+      try {
+        const res = await fetch(`${STOCK_API_URL}?code=${encodeURIComponent(code)}`);
+        return await res.json();
+      } catch (e) {
+        console.error("خطأ في الرصيد:", e);
+        return null;
+      }
+    }
+
+    async function searchAll() {
+      const code = document.getElementById("searchInput").value.trim();
+      const resultDiv = document.getElementById("result");
+
+      if (!code) {
+        resultDiv.innerHTML = "<p class='error'>يرجى إدخال كود المادة أو استخدام الكاميرا.</p>";
+        return;
+      }
+
+      resultDiv.innerHTML = "<p class='loading'>⏳ جاري البحث...</p>";
+
+      const [priceData, stockData] = await Promise.all([
+        fetchPrices(code),
+        fetchStock(code)
+      ]);
+
+      let html = "";
+
+      if (priceData && priceData.status === 'success') {
+        html += `<h3>${priceData.name}</h3>`;
+        html += `<p><strong>سعر الجملة:</strong> ${priceData.wholesale}</p>`;
+      } else {
+        html += "<p class='error'>⚠️ لم يتم العثور على الأسعار.</p>";
+      }
+
+      if (stockData && stockData.length > 0) {
+        let total = 0;
+        html += `<h4>الرصيد في المستودعات:</h4>`;
+        html += `<table><tr><th>المستودع</th><th>الرصيد</th></tr>`;
+        stockData.forEach(item => {
+          html += `<tr><td>${item.warehouse}</td><td>${item.balance}</td></tr>`;
+          total += parseFloat(item.balance) || 0;
+        });
+        html += `<tr><th>المجموع</th><th>${total}</th></tr>`;
+        html += `</table>`;
+      } else {
+        html += "<p class='error'>⚠️ لا يوجد رصيد في المستودعات.</p>";
+      }
+
+      resultDiv.innerHTML = html;
+    }
+
+    function stopCamera() {
+      if (html5QrCode) {
+        html5QrCode.stop().then(() => {
+          document.getElementById("cameraContainer").innerHTML = "";
+        }).catch(err => {
+          console.error("فشل في إيقاف الكاميرا", err);
+        });
+      }
+    }
+
+    async function startBarcodeScanner() {
+      const cameraContainer = document.getElementById("cameraContainer");
+      cameraContainer.innerHTML = "";
+
+      html5QrCode = new Html5Qrcode("cameraContainer");
+
+      try {
+        const devices = await Html5Qrcode.getCameras();
+        if (devices && devices.length) {
+          const camera = devices.find(device => device.label.toLowerCase().includes('back')) || devices[0];
+
+          html5QrCode.start(
+            camera.id,
+            { fps: 10, qrbox: 250 },
+            (decodedText) => {
+              document.getElementById("searchInput").value = decodedText;
+              stopCamera();
+              searchAll();
+            },
+            () => {}
+          );
+        } else {
+          cameraContainer.innerHTML = "<p class='error'>📷 لا يوجد كاميرا متاحة.</p>";
+        }
+      } catch (err) {
+        console.error("فشل تشغيل الكاميرا:", err);
+        cameraContainer.innerHTML = "<p class='error'>📷 تعذر تشغيل الكاميرا.</p>";
+      }
+    }
+
+    document.getElementById("searchButton").addEventListener("click", searchAll);
+    document.getElementById("scanButton").addEventListener("click", startBarcodeScanner);
+  </script>
+</body>
+</html>
